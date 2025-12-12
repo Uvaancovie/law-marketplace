@@ -133,7 +133,7 @@ const LawyerCard: React.FC<{ lawyer: Lawyer; onViewProfile: () => void }> = ({ l
       </div>
       
       <div className="flex flex-wrap gap-2 mb-4">
-        {lawyer.specialties.map(tag => (
+        {lawyer.specialties && lawyer.specialties.map(tag => (
           <span key={tag} className="px-2.5 py-1 bg-brand-50 text-brand-700 text-xs font-semibold rounded-full border border-brand-100">
             {tag}
           </span>
@@ -144,7 +144,7 @@ const LawyerCard: React.FC<{ lawyer: Lawyer; onViewProfile: () => void }> = ({ l
       
       <div className="mt-auto space-y-3">
         <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Available Packages</h4>
-        {lawyer.packages.length > 0 ? (
+        {lawyer.packages && lawyer.packages.length > 0 ? (
           lawyer.packages.slice(0, 2).map(pkg => (
             <div key={pkg.id} className="bg-slate-50 p-3 rounded-lg border border-slate-100 flex justify-between items-center group/pkg hover:bg-white hover:border-brand-200 transition-colors">
               <div className="text-sm font-medium text-slate-700 truncate pr-2">{pkg.title}</div>
@@ -201,7 +201,7 @@ const LawyerPublicProfile = ({ lawyer, onBack }: { lawyer: Lawyer, onBack: () =>
               <section>
                  <h3 className="text-lg font-bold text-slate-900 mb-4 border-b border-slate-100 pb-2">Service Packages</h3>
                  <div className="space-y-4">
-                    {lawyer.packages.map(pkg => (
+                    {lawyer.packages && lawyer.packages.map(pkg => (
                        <div key={pkg.id} className="border border-slate-200 rounded-xl p-5 hover:border-brand-300 transition-colors bg-slate-50/50 hover:bg-white group">
                           <div className="flex justify-between items-start mb-2">
                              <h4 className="font-bold text-slate-900 group-hover:text-brand-600 transition-colors">{pkg.title}</h4>
@@ -213,7 +213,7 @@ const LawyerPublicProfile = ({ lawyer, onBack }: { lawyer: Lawyer, onBack: () =>
                           </button>
                        </div>
                     ))}
-                    {lawyer.packages.length === 0 && <p className="text-slate-500 italic">No packages listed yet.</p>}
+                    {(!lawyer.packages || lawyer.packages.length === 0) && <p className="text-slate-500 italic">No packages listed yet.</p>}
                  </div>
               </section>
            </div>
@@ -222,7 +222,7 @@ const LawyerPublicProfile = ({ lawyer, onBack }: { lawyer: Lawyer, onBack: () =>
               <div className="bg-slate-50 rounded-xl p-6 border border-slate-100">
                  <h3 className="font-bold text-slate-900 mb-3 text-sm uppercase tracking-wider">Specialties</h3>
                  <div className="flex flex-wrap gap-2">
-                    {lawyer.specialties.map(s => (
+                    {lawyer.specialties && lawyer.specialties.map(s => (
                        <span key={s} className="px-3 py-1 bg-white border border-slate-200 rounded-full text-sm text-slate-700 font-medium">{s}</span>
                     ))}
                  </div>
@@ -252,29 +252,33 @@ const AuthModal = ({ isOpen, onClose, type, onAuthSuccess }: { isOpen: boolean; 
   // Extra fields for Lawyer Registration
   const [location, setLocation] = useState('');
   const [specialty, setSpecialty] = useState('');
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => { setIsLogin(type === 'login'); }, [type]);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Simulate Auth
+    setLoading(true);
+    
+    // Simulate Auth ID generation
     const id = Math.random().toString(36).substr(2, 9);
     const user: User = {
       id,
       name: name || email.split('@')[0],
       email,
-      role: isLogin ? UserRole.CONSUMER : role // Simplification for demo
+      role: isLogin ? UserRole.CONSUMER : role 
     };
 
     if (!isLogin && role === UserRole.LAWYER) {
-       // Register lawyer profile
-       db.registerLawyer(user, { location, specialties: [specialty], bio: 'New lawyer to the platform.' });
+       // Register lawyer profile via API
+       await db.registerLawyer(user, { location, specialties: [specialty], bio: 'New lawyer to the platform.' });
        user.lawyerProfileId = id;
     }
 
     onAuthSuccess(user);
+    setLoading(false);
     onClose();
   };
 
@@ -321,8 +325,8 @@ const AuthModal = ({ isOpen, onClose, type, onAuthSuccess }: { isOpen: boolean; 
               </>
             )}
 
-            <button type="submit" className="w-full bg-brand-600 hover:bg-brand-700 text-white font-semibold py-2.5 rounded-lg transition-all mt-6 shadow-md hover:shadow-lg">
-              {isLogin ? 'Sign In' : 'Create Account'}
+            <button type="submit" disabled={loading} className="w-full bg-brand-600 hover:bg-brand-700 text-white font-semibold py-2.5 rounded-lg transition-all mt-6 shadow-md hover:shadow-lg disabled:opacity-70">
+              {loading ? 'Processing...' : (isLogin ? 'Sign In' : 'Create Account')}
             </button>
           </form>
 
@@ -472,40 +476,42 @@ const LawyerDashboard = ({ user }: { user: User }) => {
 
   // Hydrate lawyer data
   useEffect(() => {
-    const lawyer = db.getLawyerById(user.id);
-    if (lawyer) {
-      setPackages(lawyer.packages);
-      setProfileData({
-        name: lawyer.name,
-        location: lawyer.location,
-        specialties: lawyer.specialties,
-        bio: lawyer.bio,
-        imageUrl: lawyer.imageUrl
-      });
-    }
+    const fetchData = async () => {
+      const lawyer = await db.getLawyerById(user.id);
+      if (lawyer) {
+        setPackages(lawyer.packages || []);
+        setProfileData({
+          name: lawyer.name,
+          location: lawyer.location,
+          specialties: lawyer.specialties,
+          bio: lawyer.bio,
+          imageUrl: lawyer.imageUrl
+        });
+      }
+    };
+    fetchData();
   }, [user.id]);
 
-  const handleAddPackage = (e: React.FormEvent) => {
+  const handleAddPackage = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newPkg = db.addPackage(user.id, { title, description: desc, price: Number(price) });
+    const newPkg = await db.addPackage(user.id, { title, description: desc, price: Number(price) });
     if (newPkg) {
-      setPackages([...packages, newPkg]);
+      setPackages(prev => [...prev, newPkg]);
       setTitle('');
       setDesc('');
       setPrice('');
     }
   };
 
-  const handleUpdateProfile = (e: React.FormEvent) => {
+  const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSavingProfile(true);
-    // Simulate API Call
-    setTimeout(() => {
-       db.updateLawyer(user.id, profileData);
-       setIsSavingProfile(false);
-       setProfileSuccess(true);
-       setTimeout(() => setProfileSuccess(false), 3000);
-    }, 800);
+    
+    await db.updateLawyer(user.id, profileData);
+    
+    setIsSavingProfile(false);
+    setProfileSuccess(true);
+    setTimeout(() => setProfileSuccess(false), 3000);
   };
 
   return (
