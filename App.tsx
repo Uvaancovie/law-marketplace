@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { User, UserRole, Lawyer } from './types';
 import { db } from './services/db';
 import Assistant from './components/Assistant';
-import { geminiService } from './services/geminiService';
 import { AuthService } from './services/auth';
 import { 
   MapPin, 
@@ -597,8 +596,19 @@ const LawyerDashboard = ({ user }: { user: User }) => {
     }
     setGeneratingDesc(true);
     try {
-      const description = await geminiService.generatePackageDescription(title, Number(price));
-      setDesc(description);
+      const response = await fetch('/api/generate-package-description', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...AuthService.getAuthHeaders()
+        },
+        body: JSON.stringify({ title, price })
+      });
+      
+      if (!response.ok) throw new Error('Failed to generate description');
+      
+      const data = await response.json();
+      setDesc(data.description);
     } catch (error) {
       console.error('Failed to generate description:', error);
       alert('Failed to generate description. Please try again.');
@@ -615,8 +625,23 @@ const LawyerDashboard = ({ user }: { user: User }) => {
     }
     setGeneratingBio(true);
     try {
-      const bio = await geminiService.generateProfileBio(profileData.name || user.name, specialties, location);
-      setProfileData({...profileData, bio});
+      const response = await fetch('/api/generate-profile-bio', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...AuthService.getAuthHeaders()
+        },
+        body: JSON.stringify({ 
+          name: profileData.name || user.name, 
+          specialties, 
+          location 
+        })
+      });
+      
+      if (!response.ok) throw new Error('Failed to generate bio');
+      
+      const data = await response.json();
+      setProfileData({...profileData, bio: data.bio});
     } catch (error) {
       console.error('Failed to generate bio:', error);
       alert('Failed to generate bio. Please try again.');

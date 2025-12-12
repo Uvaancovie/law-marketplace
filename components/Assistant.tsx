@@ -1,8 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MessageCircle, X, Send, Loader2, Sparkles } from 'lucide-react';
-import { geminiService } from '../services/geminiService';
 import { ChatMessage, Lawyer } from '../types';
 import { db } from '../services/db';
+import { AuthService } from '../services/auth';
+
+interface AssistantProps {
+  onLawyersFound: (lawyers: Lawyer[]) => void;
+}
 
 interface AssistantProps {
   onLawyersFound: (lawyers: Lawyer[]) => void;
@@ -11,27 +15,18 @@ interface AssistantProps {
 const Assistant: React.FC<AssistantProps> = ({ onLawyersFound }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { id: 'welcome', role: 'model', text: 'Hi! I can help you find a lawyer. Try saying "I need a divorce lawyer in New York".' }
+    { id: 'welcome', role: 'model', text: 'Hi! I can help you find a lawyer. Try saying "I need a divorce lawyer in Johannesburg".' }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const chatSessionRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    // Initialize chat session once
-    const initChat = async () => {
-      chatSessionRef.current = await geminiService.createChat();
-    };
-    initChat();
-  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   const handleSend = async () => {
-    if (!input.trim() || isLoading || !chatSessionRef.current) return;
+    if (!input.trim() || isLoading) return;
 
     const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: input };
     setMessages(prev => [...prev, userMsg]);
@@ -39,41 +34,53 @@ const Assistant: React.FC<AssistantProps> = ({ onLawyersFound }) => {
     setIsLoading(true);
 
     try {
-      let response = await chatSessionRef.current.sendMessage({ message: userMsg.text });
-      
-      // Handle Function Calls Loop (Gemini might want to call a function)
-      // The SDK handles the loop if we provide the tool response, but here we do it manually to update UI side-effects
-      
-      const functionCalls = response.functionCalls;
-      
-      if (functionCalls && functionCalls.length > 0) {
-         // We have a function call
-         const call = functionCalls[0]; // Assume one for simplicity
-         const toolResult = await geminiService.handleToolCall(call);
+      // Convert messages to the format expected by the API
+      const history = messages.map(msg => ({
+        role: msg.role === 'model' ? 'model' : 'user',
+        content: msg.text
+      }));
 
-         // SIDE EFFECT: Update the main UI with the found lawyers if the tool was searchLawyers
-         if (call.name === 'searchLawyers') {
-            const args = call.args as { location?: string; specialty?: string };
+      const response = await fetch('/api/ai-chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...AuthService.getAuthHeaders()
+        },
+        body: JSON.stringify({
+          message: userMsg.text,
+          history
+        })
+      });
+
+      if (!response.ok) throw new Error('Failed to get AI response');
+
+      const data = await response.json();
+
+      // Handle tool calls (lawyer search results)
+      if (data.toolCalls && data.toolCalls.length > 0) {
+        for (const toolCall of data.toolCalls) {
+          if (toolCall.name === 'searchLawyers') {
+            const args = toolCall.args;
             const fullLawyerObjects = await db.getLawyers(args);
             onLawyersFound(fullLawyerObjects);
-         }
-
-         // Send result back to model
-         response = await chatSessionRef.current.sendMessage({
-            message: [{
-                functionResponse: {
-                    name: call.name,
-                    response: { result: toolResult }
-                }
-            }]
-         });
+          }
+        }
       }
 
-      const modelText = response.text;
-      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: modelText }]);
+      const modelMsg: ChatMessage = {
+        id: Date.now().toString(),
+        role: 'model',
+        text: data.response
+      };
+
+      setMessages(prev => [...prev, modelMsg]);
     } catch (error) {
       console.error(error);
-      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: 'Sorry, I encountered an error. Please try again.' }]);
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        role: 'model',
+        text: 'Sorry, I encountered an error. Please try again.'
+      }]);
     } finally {
       setIsLoading(false);
     }
