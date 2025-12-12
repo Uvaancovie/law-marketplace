@@ -1,0 +1,8 @@
+{
+  "name": "JustiFind SA - Legal Marketplace",
+  "description": "A South African marketplace connecting consumers with affordable lawyers in Johannesburg, Cape Town, and Durban.",
+  "requestFramePermissions": [
+    "geolocation",
+    "microphone"
+  ]
+}
