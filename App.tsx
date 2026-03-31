@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, UserRole, Lawyer } from './types';
 import { db } from './services/db';
-import Assistant from './components/Assistant';
 import { 
   MapPin, 
   Search, 
@@ -262,19 +261,40 @@ const AuthModal = ({ isOpen, onClose, type, onAuthSuccess }: { isOpen: boolean; 
     e.preventDefault();
     setLoading(true);
     
-    // Simulate Auth ID generation
-    const id = Math.random().toString(36).substr(2, 9);
+    // Check if user exists in Supabase (Mocking auth fetching for MVP)
+    let fetchedUserRole = role;
+    let finalId = Math.random().toString(36).substr(2, 9);
+    let finalName = name || email.split('@')[0];
+
+    if (isLogin) {
+       // Mock basic lookup based on email to see if they previously registered as a lawyer
+       // (Real app would use Supabase Auth)
+       const { data: userData } = await db.rawClient.from('lawyers').select('*').limit(1); // checking if they might be a lawyer (simplified MVP logic)
+       
+       // For MVP hack: Let user pick role they want to login as via the tabs, 
+       // but typically login doesn't have role tabs. Let's force them to be LAWYER if they choose it.
+       // We'll expose the role selector on the login form too for this pure mock flow.
+       fetchedUserRole = role; 
+    }
+
     const user: User = {
-      id,
-      name: name || email.split('@')[0],
+      id: finalId,
+      name: finalName,
       email,
-      role: isLogin ? UserRole.CONSUMER : role 
+      role: fetchedUserRole 
     };
 
-    if (!isLogin && role === UserRole.LAWYER) {
-       // Register lawyer profile via API
-       await db.registerLawyer(user, { location, specialties: [specialty], bio: 'New lawyer to the platform.' });
-       user.lawyerProfileId = id;
+    if (fetchedUserRole === UserRole.LAWYER) {
+       if (!isLogin) {
+         await db.registerLawyer(user, { location, specialties: [specialty], bio: 'New lawyer to the platform.' });
+       } else {
+         // Check if they need a profile created if they just hit "login" as a new mock user
+         const profile = await db.getLawyerById(finalId);
+         if (!profile) {
+           await db.registerLawyer(user, { location: 'South Africa', specialties: ['General'], bio: 'Lawyer profile.' });
+         }
+       }
+       user.lawyerProfileId = finalId;
     }
 
     onAuthSuccess(user);
@@ -290,15 +310,16 @@ const AuthModal = ({ isOpen, onClose, type, onAuthSuccess }: { isOpen: boolean; 
           <p className="text-slate-500 text-sm mb-6">{isLogin ? 'Sign in to access your dashboard' : 'Join thousands of users today'}</p>
           
           <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="flex bg-slate-100 p-1 rounded-lg mb-4">
+               <button type="button" onClick={() => setRole(UserRole.CONSUMER)} className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${role === UserRole.CONSUMER ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Consumer</button>
+               <button type="button" onClick={() => setRole(UserRole.LAWYER)} className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${role === UserRole.LAWYER ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Lawyer</button>
+            </div>
+            
             {!isLogin && (
                <>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
                   <input type="text" required value={name} onChange={e => setName(e.target.value)} className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none" />
-                </div>
-                <div className="flex bg-slate-100 p-1 rounded-lg mb-4">
-                   <button type="button" onClick={() => setRole(UserRole.CONSUMER)} className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${role === UserRole.CONSUMER ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Consumer</button>
-                   <button type="button" onClick={() => setRole(UserRole.LAWYER)} className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${role === UserRole.LAWYER ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Lawyer</button>
                 </div>
                </>
             )}
@@ -455,7 +476,7 @@ const ConsumerDashboard = ({ user }: { user: User | null }) => {
       </div>
       
       {/* Assistant is always available for consumers */}
-      <Assistant onLawyersFound={(results) => setLawyers(results)} />
+      {/* Assistant Component Removed */}
     </div>
   );
 };
